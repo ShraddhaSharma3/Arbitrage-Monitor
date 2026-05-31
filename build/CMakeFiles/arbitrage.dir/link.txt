@@ -1,0 +1,1 @@
+/usr/bin/c++ CMakeFiles/arbitrage.dir/main.cpp.o -o arbitrage  /usr/local/lib/libftxui-screen.a /usr/local/lib/libftxui-dom.a /usr/local/lib/libftxui-component.a /usr/lib/x86_64-linux-gnu/libboost_system.so.1.83.0 /usr/lib/x86_64-linux-gnu/libssl.so /usr/lib/x86_64-linux-gnu/libcrypto.so -lpthread /usr/local/lib/libftxui-dom.a /usr/local/lib/libftxui-screen.a 

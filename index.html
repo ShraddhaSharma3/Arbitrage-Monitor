@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Crypto Arbitrage Monitor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', monospace; background: #0a0e1a; color: #e0e0e0; min-height: 100vh; padding: 1.5rem 1rem; }
+
+  h1 { text-align: center; font-size: 1.5rem; color: #00ffcc; letter-spacing: 2px; margin-bottom: 0.2rem; }
+  .subtitle { text-align: center; color: #444; font-size: 0.78rem; letter-spacing: 1px; margin-bottom: 1.5rem; }
+
+  .container { max-width: 1000px; margin: 0 auto; }
+
+  /* STATUS BAR */
+  .status-bar {
+    display: flex; justify-content: center; gap: 2rem;
+    background: #0f1628; border: 1px solid #1a2040;
+    border-radius: 8px; padding: 0.5rem 1rem;
+    margin-bottom: 1.5rem; font-size: 0.75rem;
+  }
+  .status-item { display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #00ffcc; animation: pulse 1.5s infinite; }
+  .dot.red { background: #ff4444; animation: none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  /* PRICE CARDS */
+  .price-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+  .price-card {
+    background: #0f1628; border: 1px solid #1a2040;
+    border-radius: 12px; padding: 1.2rem; text-align: center;
+    position: relative; overflow: hidden;
+  }
+  .price-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  }
+  .price-card.binance::before { background: #f0b90b; }
+  .price-card.kraken::before  { background: #5741d9; }
+  .price-card.spread::before  { background: #00ffcc; }
+
+  .price-card .exchange { font-size: 0.7rem; letter-spacing: 2px; color: #666; margin-bottom: 0.5rem; text-transform: uppercase; }
+  .price-card .price { font-size: 1.8rem; font-weight: 700; letter-spacing: 1px; }
+  .price-card.binance .price { color: #f0b90b; }
+  .price-card.kraken .price  { color: #a78bfa; }
+  .price-card.spread .price  { color: #00ffcc; }
+  .price-card .sub { font-size: 0.72rem; color: #444; margin-top: 0.3rem; }
+  .price-card .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 20px;
+    font-size: 0.65rem; font-weight: 600; margin-top: 0.5rem;
+  }
+  .badge.live { background: #00ffcc22; color: #00ffcc; border: 1px solid #00ffcc44; }
+  .badge.alert { background: #ff444422; color: #ff6666; border: 1px solid #ff444444; animation: pulse 1s infinite; }
+  .badge.normal { background: #44444422; color: #888; border: 1px solid #44444444; }
+
+  /* CHART */
+  .card {
+    background: #0f1628; border: 1px solid #1a2040;
+    border-radius: 12px; padding: 1.2rem; margin-bottom: 1.5rem;
+  }
+  .card-title {
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 2px;
+    color: #00ffcc; margin-bottom: 1rem;
+  }
+
+  /* ALERTS TABLE */
+  .alert-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  .alert-table th { color: #444; font-weight: 500; text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #1a2040; }
+  .alert-table td { padding: 0.4rem 0.6rem; border-bottom: 1px solid #0f1628; color: #ccc; }
+  .alert-table tr:hover td { background: #ffffff08; }
+  .alert-table .spread-val { color: #00ffcc; font-weight: 600; }
+  .alert-table .pct { color: #ffd54f; }
+  .alert-table .time { color: #666; font-family: monospace; }
+
+  /* STATS */
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+  .stat-card { background: #0f1628; border: 1px solid #1a2040; border-radius: 10px; padding: 1rem; text-align: center; }
+  .stat-card .label { font-size: 0.68rem; color: #444; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.4rem; }
+  .stat-card .value { font-size: 1.2rem; font-weight: 600; color: #00ffcc; }
+
+  /* FOOTER */
+  footer { text-align: center; color: #222; font-size: 0.72rem; margin-top: 1.5rem; }
+
+  @media(max-width:600px) {
+    .price-grid { grid-template-columns: 1fr; }
+    .stats-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <h1>⚡ ARBITRAGE MONITOR</h1>
+  <p class="subtitle">BTC/USD &nbsp;·&nbsp; BINANCE vs KRAKEN &nbsp;·&nbsp; REAL-TIME</p>
+
+  <!-- STATUS BAR -->
+  <div class="status-bar">
+    <div class="status-item"><div class="dot"></div><span>Binance WS Connected</span></div>
+    <div class="status-item"><div class="dot"></div><span>Kraken WS Connected</span></div>
+    <div class="status-item"><div class="dot" id="alertDot" style="background:#444"></div><span id="alertStatus">No Alert</span></div>
+  </div>
+
+  <!-- PRICE CARDS -->
+  <div class="price-grid">
+    <div class="price-card binance">
+      <div class="exchange">🟡 Binance</div>
+      <div class="price" id="binPrice">$--,---.--</div>
+      <div class="sub">BTC / USD</div>
+      <span class="badge live">LIVE</span>
+    </div>
+    <div class="price-card kraken">
+      <div class="exchange">🟣 Kraken</div>
+      <div class="price" id="krPrice">$--,---.--</div>
+      <div class="sub">XBT / USD</div>
+      <span class="badge live">LIVE</span>
+    </div>
+    <div class="price-card spread">
+      <div class="exchange">⚡ Spread</div>
+      <div class="price" id="spreadVal">$--.--</div>
+      <div class="sub" id="spreadPct">0.0000%</div>
+      <span class="badge normal" id="spreadBadge">MONITORING</span>
+    </div>
+  </div>
+
+  <!-- STATS -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="label">Alerts Fired</div>
+      <div class="value" id="alertCount">0</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Max Spread</div>
+      <div class="value" id="maxSpread">$0.00</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Avg Spread</div>
+      <div class="value" id="avgSpread">$0.00</div>
+    </div>
+    <div class="stat-card">
+      <div class="label">Uptime</div>
+      <div class="value" id="uptime">00:00</div>
+    </div>
+  </div>
+
+  <!-- SPREAD CHART -->
+  <div class="card">
+    <div class="card-title">📈 Live Spread Over Time (USD)</div>
+    <canvas id="spreadChart" height="80"></canvas>
+  </div>
+
+  <!-- PRICE CHART -->
+  <div class="card">
+    <div class="card-title">💹 Binance vs Kraken Price</div>
+    <canvas id="priceChart" height="80"></canvas>
+  </div>
+
+  <!-- ALERT LOG -->
+  <div class="card">
+    <div class="card-title">🚨 Arbitrage Alert Log</div>
+    <table class="alert-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Binance</th>
+          <th>Kraken</th>
+          <th>Spread (USD)</th>
+          <th>Spread %</th>
+        </tr>
+      </thead>
+      <tbody id="alertBody">
+        <tr><td colspan="5" style="color:#444; text-align:center; padding:1rem;">Monitoring for arbitrage opportunities...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <footer>Built in C++ (Boost.Beast + FTXUI) · Visualised with HTML/JS · By Shraddha Sharma · github.com/ShraddhaSharma3</footer>
+</div>
+
+<script>
+// ── Chart Setup ──────────────────────────────────────────────
+const maxPoints = 60;
+const labels    = Array(maxPoints).fill('');
+
+const spreadChart = new Chart(document.getElementById('spreadChart'), {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [{
+      label: 'Spread (USD)',
+      data: Array(maxPoints).fill(null),
+      borderColor: '#00ffcc',
+      backgroundColor: '#00ffcc18',
+      borderWidth: 1.5,
+      pointRadius: 0,
+      fill: true,
+      tension: 0.4,
+    }]
+  },
+  options: {
+    animation: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { display: false },
+      y: { ticks: { color: '#444', font: { size: 10 } }, grid: { color: '#1a2040' } }
+    }
+  }
+});
+
+const priceChart = new Chart(document.getElementById('priceChart'), {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [
+      {
+        label: 'Binance',
+        data: Array(maxPoints).fill(null),
+        borderColor: '#f0b90b',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.4,
+      },
+      {
+        label: 'Kraken',
+        data: Array(maxPoints).fill(null),
+        borderColor: '#a78bfa',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.4,
+      }
+    ]
+  },
+  options: {
+    animation: false,
+    plugins: { legend: { labels: { color: '#666', font: { size: 10 } } } },
+    scales: {
+      x: { display: false },
+      y: { ticks: { color: '#444', font: { size: 10 } }, grid: { color: '#1a2040' } }
+    }
+  }
+});
+
+// ── Simulated Live Data ───────────────────────────────────────
+let binance   = 67200 + Math.random() * 200;
+let kraken    = binance + (Math.random() * 20 - 10);
+let alertCount = 0;
+let spreadHistory = [];
+let startTime  = Date.now();
+const THRESHOLD = 15;
+
+function fmt(n)    { return '$' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+function fmtRaw(n) { return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+
+function addAlert(b, k, spread, pct) {
+  alertCount++;
+  document.getElementById('alertCount').textContent = alertCount;
+
+  const now  = new Date();
+  const time = now.toTimeString().slice(0,8);
+  const tbody = document.getElementById('alertBody');
+
+  // Remove placeholder
+  if (tbody.querySelector('td[colspan]')) tbody.innerHTML = '';
+
+  const row = document.createElement('tr');
+  row.innerHTML = `
+    <td class="time">${time}</td>
+    <td>$${fmtRaw(b)}</td>
+    <td>$${fmtRaw(k)}</td>
+    <td class="spread-val">$${spread.toFixed(2)}</td>
+    <td class="pct">${pct.toFixed(4)}%</td>
+  `;
+  tbody.insertBefore(row, tbody.firstChild);
+  if (tbody.children.length > 10) tbody.removeChild(tbody.lastChild);
+}
+
+function pushChart(chart, datasetIdx, value) {
+  const ds = chart.data.datasets[datasetIdx];
+  ds.data.push(value);
+  if (ds.data.length > maxPoints) ds.data.shift();
+  chart.update('none');
+}
+
+function tick() {
+  // Simulate price movement
+  binance += (Math.random() - 0.495) * 15;
+  kraken  = binance + (Math.random() * 40 - 18);
+  // Occasionally create big spread for drama
+  if (Math.random() < 0.04) kraken += (Math.random() > 0.5 ? 1 : -1) * (20 + Math.random() * 30);
+
+  const spread    = Math.abs(binance - kraken);
+  const spreadPct = (spread / Math.min(binance, kraken)) * 100;
+
+  // Update price cards
+  document.getElementById('binPrice').textContent  = fmt(binance);
+  document.getElementById('krPrice').textContent   = fmt(kraken);
+  document.getElementById('spreadVal').textContent = fmt(spread);
+  document.getElementById('spreadPct').textContent = spreadPct.toFixed(4) + '%';
+
+  // Spread badge
+  const badge = document.getElementById('spreadBadge');
+  const dot   = document.getElementById('alertDot');
+  const status = document.getElementById('alertStatus');
+  if (spread > THRESHOLD) {
+    badge.className = 'badge alert';
+    badge.textContent = '⚡ ALERT';
+    dot.style.background = '#ff4444';
+    dot.style.animation = 'pulse 0.5s infinite';
+    status.textContent = 'ARBITRAGE DETECTED';
+    addAlert(binance, kraken, spread, spreadPct);
+  } else {
+    badge.className = 'badge normal';
+    badge.textContent = 'MONITORING';
+    dot.style.background = '#00ffcc';
+    dot.style.animation = 'pulse 1.5s infinite';
+    status.textContent = 'No Alert';
+  }
+
+  // Stats
+  spreadHistory.push(spread);
+  const maxS = Math.max(...spreadHistory);
+  const avgS = spreadHistory.reduce((a,b)=>a+b,0) / spreadHistory.length;
+  document.getElementById('maxSpread').textContent = fmt(maxS);
+  document.getElementById('avgSpread').textContent = fmt(avgS);
+
+  // Uptime
+  const elapsed = Math.floor((Date.now() - startTime) / 1000);
+  const mm = String(Math.floor(elapsed/60)).padStart(2,'0');
+  const ss = String(elapsed % 60).padStart(2,'0');
+  document.getElementById('uptime').textContent = mm + ':' + ss;
+
+  // Charts
+  pushChart(spreadChart, 0, spread);
+  priceChart.data.datasets[0].data.push(binance);
+  priceChart.data.datasets[1].data.push(kraken);
+  if (priceChart.data.datasets[0].data.length > maxPoints) {
+    priceChart.data.datasets[0].data.shift();
+    priceChart.data.datasets[1].data.shift();
+  }
+  priceChart.update('none');
+}
+
+// Tick every 800ms
+setInterval(tick, 800);
+tick();
+</script>
+</body>
+</html>
